@@ -1,0 +1,12 @@
+# Runtime artifacts written each harness run
+run.log
+state.json
+summary.json
+checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

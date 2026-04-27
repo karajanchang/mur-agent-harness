@@ -1,0 +1,1 @@
+{"ticket": 0, "results": {"docs_o8": "echo: {\"customer\": \"Alice Co\", \"type\": \"quote_request\", \"items\": [\"product-A x10\"]}", "quoter_o8": "echo: {\"customer\": \"Alice Co\", \"type\": \"quote_request\", \"items\": [\"product-A x10\"]}", "cs_o8": "echo: {\"customer\": \"Alice Co\", \"type\": \"quote_request\", \"items\": [\"product-A x10\"]}"}}
