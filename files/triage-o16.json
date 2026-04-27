@@ -1,0 +1,23 @@
+[
+  {
+    "email": "Where's my invoice for last month?",
+    "raw_classifier": "support",
+    "chosen": "support",
+    "expected": "billing",
+    "reply": "echo: Where's my invoice for last month?"
+  },
+  {
+    "email": "My VPN keeps dropping every hour.",
+    "raw_classifier": "support",
+    "chosen": "support",
+    "expected": "support",
+    "reply": "echo: My VPN keeps dropping every hour."
+  },
+  {
+    "email": "Looking to buy 200 licenses for our team.",
+    "raw_classifier": "sales",
+    "chosen": "sales",
+    "expected": "sales",
+    "reply": "echo: Looking to buy 200 licenses for our team."
+  }
+]

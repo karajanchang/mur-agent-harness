@@ -1,0 +1,14 @@
+[
+  {
+    "src": "\u4eca\u5929\u5929\u6c23\u5f88\u597d",
+    "detected": "chinese",
+    "translation": "The weather today is very good.",
+    "review": "REVISE"
+  },
+  {
+    "src": "Hello world",
+    "detected": "english",
+    "translation": "Hello",
+    "review": "OK"
+  }
+]

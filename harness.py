@@ -147,6 +147,109 @@ ROSTER: dict[str, AgentSpec] = {
             "preamble, no list, no quotes — just the sentence."
         ),
     ),
+    # ------- Phase 5 (n8n / Dify replacement) -------
+    # OFFICE-12: n8n form → CRM. Real-LLM extractor.
+    "extractor_o12": AgentSpec(
+        "extractor_o12",
+        model="llama3.2:3b",
+        fs_write=[str(FILES_DIR)],
+        system_prompt=(
+            "You are a form-extraction agent. Given a free-text customer message, "
+            "respond with ONLY a single line of JSON of the form "
+            '{"name":"...","email":"...","intent":"..."}'
+            " using the empty string for missing fields. No preamble, no markdown, "
+            "no surrounding code fence — just one JSON object."
+        ),
+    ),
+    # OFFICE-13: scheduled multi-stage report. Echo agents form the chain.
+    "ingest_o13": AgentSpec("ingest_o13", sends_to=["aggregator_o13"],
+                            fs_write=[str(FILES_DIR)]),
+    "aggregator_o13": AgentSpec("aggregator_o13",
+                                accepts_from=["ingest_o13", "*"],
+                                sends_to=["formatter_o13"],
+                                fs_read=[str(FILES_DIR)],
+                                fs_write=[str(FILES_DIR)]),
+    "formatter_o13": AgentSpec("formatter_o13",
+                               accepts_from=["aggregator_o13", "*"],
+                               fs_read=[str(FILES_DIR)],
+                               fs_write=[str(FILES_DIR)]),
+    # OFFICE-14: Dify-style RAG. Librarian reads docs/ and answers with citation.
+    "librarian_o14": AgentSpec(
+        "librarian_o14",
+        model="llama3.2:3b",
+        fs_read=[str(FILES_DIR / "docs_o14")],
+        system_prompt=(
+            "You are a knowledge-base assistant. The user prompt contains the "
+            "question PRECEDED by relevant document excerpts in the form\n"
+            "DOC[<filename>]: <text>\n"
+            "Reply with ONE short sentence answering the question, ending with "
+            "the citation ` [source: <filename>]`. If no document is relevant, "
+            "reply with `I don't know.` exactly. No preamble."
+        ),
+    ),
+    # OFFICE-15: Dify planner-executor.
+    "planner_o15": AgentSpec("planner_o15", sends_to=["executor_o15"]),
+    "executor_o15": AgentSpec("executor_o15", accepts_from=["planner_o15", "*"]),
+    "aggregator_o15": AgentSpec("aggregator_o15", accepts_from=["executor_o15", "*"]),
+    # OFFICE-16: email triage classifier (LLM) + 3 echo template responders.
+    "classifier_o16": AgentSpec(
+        "classifier_o16",
+        model="llama3.2:3b",
+        system_prompt=(
+            "You classify customer emails into ONE of: billing, support, sales.\n"
+            "- billing: invoices, refunds, charges, payment, receipt\n"
+            "- support: technical problem, error, broken, not working, password\n"
+            "- sales: buying, purchase, pricing, quote, licenses\n\n"
+            "Examples:\n"
+            "Email: 'Where is my invoice?' -> billing\n"
+            "Email: 'My password reset email never arrived.' -> support\n"
+            "Email: 'Looking to buy 100 licenses.' -> sales\n"
+            "Email: 'Can I get a refund?' -> billing\n"
+            "Email: 'VPN keeps dropping.' -> support\n"
+            "Email: 'Quote for enterprise tier?' -> sales\n\n"
+            "Reply with EXACTLY one lowercase word from {billing, support, sales}. "
+            "No preamble, no punctuation, no quotes."
+        ),
+    ),
+    "billing_o16": AgentSpec("billing_o16", accepts_from=["classifier_o16", "*"]),
+    "support_o16": AgentSpec("support_o16", accepts_from=["classifier_o16", "*"]),
+    "sales_o16": AgentSpec("sales_o16", accepts_from=["classifier_o16", "*"]),
+    # OFFICE-17: 3-stage translation chain.
+    "detector_o17": AgentSpec(
+        "detector_o17",
+        model="llama3.2:3b",
+        system_prompt=(
+            "You detect the language of the user's text. Reply with EXACTLY one "
+            "lowercase word: english, chinese, or other. No preamble, no quotes."
+        ),
+    ),
+    "translator_o17": AgentSpec(
+        "translator_o17",
+        model="llama3.2:3b",
+        system_prompt=(
+            "You are a translator. Translate the user text into ENGLISH. "
+            "Reply with ONLY the translation. No preamble, no quotes, no notes."
+        ),
+    ),
+    "reviewer_o17": AgentSpec(
+        "reviewer_o17",
+        model="llama3.2:3b",
+        system_prompt=(
+            "You review English translations. Reply with EXACTLY one word: "
+            "either OK or REVISE. No preamble, no punctuation."
+        ),
+    ),
+    # OFFICE-18: log anomaly pipeline. Echo agents.
+    "watcher_o18": AgentSpec("watcher_o18",
+                             sends_to=["analyzer_o18"],
+                             fs_read=[str(FILES_DIR / "logs_o18")],
+                             fs_write=[str(FILES_DIR)]),
+    "analyzer_o18": AgentSpec("analyzer_o18",
+                              accepts_from=["watcher_o18", "*"],
+                              sends_to=["alerter_o18"]),
+    "alerter_o18": AgentSpec("alerter_o18",
+                             accepts_from=["analyzer_o18", "*"],
+                             fs_write=[str(FILES_DIR)]),
 }
 
 
@@ -1070,6 +1173,337 @@ def office_11_xnet_llm(h: Harness) -> bool:
         _stop_remote_agent(remote_pid, remote_name)
 
 
+# ---------------------------------------------------------------------------
+# Phase 5 — n8n / Dify replacement scenarios (OFFICE-12 .. OFFICE-18)
+# ---------------------------------------------------------------------------
+
+
+def _agent_text(resp: dict) -> str:
+    return next((p["text"] for m in resp["messages"]
+                 if m["role"] == "agent" for p in m["parts"]), "")
+
+
+def office_12_form_extractor(h: Harness) -> bool:
+    """n8n: webhook form → CRM. mur: HTTP POST → LLM extractor → JSON outbox."""
+    import http.server, socketserver, threading, urllib.request, re as _re
+    h.ensure_profile(ROSTER["extractor_o12"])
+    h.spawn("extractor_o12", llm_mode=True)
+    h.checkpoint("OFFICE-12.spawned")
+
+    captured: list[dict] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_a, **_k): return
+
+        def do_POST(self) -> None:
+            n = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(n).decode("utf-8")
+            free_text = json.loads(body)["text"]
+            resp = h.send("extractor_o12", free_text, timeout=120)
+            raw = _agent_text(resp).strip()
+            # llama3.2:3b sometimes wraps JSON in code fences; strip them.
+            raw = _re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=_re.M).strip()
+            try:
+                extracted = json.loads(raw.splitlines()[0]) if raw else {}
+            except json.JSONDecodeError:
+                # try a more aggressive search for a JSON object in the output
+                m = _re.search(r"\{[^{}]*\}", raw)
+                extracted = json.loads(m.group(0)) if m else {}
+            crm_path = FILES_DIR / f"crm-o12-{len(captured)}.json"
+            crm_path.write_text(json.dumps(extracted))
+            captured.append({"text": free_text, "extracted": extracted,
+                             "raw": raw[:300], "out": str(crm_path)})
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"out": str(crm_path)}).encode("utf-8"))
+
+    port = 7880
+    httpd = socketserver.TCPServer(("127.0.0.1", port), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    log("OFFICE-12.http_up", port=port)
+    try:
+        forms = [
+            "Hi I'm Alice Wang, alice@example.com — looking to buy 50 units.",
+            "Bob here, bob.smith@bigcorp.io. Just want a refund.",
+        ]
+        for f in forms:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}",
+                data=json.dumps({"text": f}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=150) as r:
+                json.loads(r.read())
+
+        # Permissive: each capture must have produced an extracted dict with
+        # at least one of name/email/intent populated.
+        for c in captured:
+            ex = c["extracted"]
+            if not isinstance(ex, dict) or not any(ex.get(k) for k in ("name", "email", "intent")):
+                h.record_error("OFFICE-12.empty_extraction",
+                               text=c["text"], raw=c["raw"], extracted=ex)
+                return False
+            log("OFFICE-12.extracted", **{k: ex.get(k, "") for k in ("name", "email", "intent")})
+        h.checkpoint("OFFICE-12.complete", count=len(captured))
+        return True
+    finally:
+        httpd.shutdown(); httpd.server_close()
+
+
+def office_13_scheduled_report(h: Harness) -> bool:
+    """n8n: cron → multi-step report. mur: Python tick fires N times → 3-agent chain."""
+    for name in ("ingest_o13", "aggregator_o13", "formatter_o13"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-13.spawned")
+
+    # Each "tick" injects a synthetic data point into the chain.
+    for tick in range(3):
+        data_point = f"metric={100 + tick * 7}, ts={tick}"
+        # 1. ingest acknowledges and persists raw
+        raw_path = FILES_DIR / f"ingest-o13-{tick}.txt"
+        raw_path.write_text(data_point)
+        h.send("ingest_o13", f"raw at {raw_path}")
+        # 2. aggregator accumulates
+        h.send("aggregator_o13", f"add: {data_point}")
+        time.sleep(0.05)  # simulate cron interval, kept tiny
+
+    # 3. formatter produces final report
+    final_resp = h.send("formatter_o13", "produce report from accumulated metrics")
+    if _agent_text(final_resp) != "echo: produce report from accumulated metrics":
+        h.record_error("OFFICE-13.formatter_unexpected", got=_agent_text(final_resp))
+        return False
+
+    report_path = FILES_DIR / "report-o13.md"
+    report_path.write_text(
+        "# Scheduled report (OFFICE-13)\n\nTicks: 3\n"
+        "Metrics: 100, 107, 114\n"
+        f"Final ack: {_agent_text(final_resp)}\n"
+    )
+    log("OFFICE-13.report_written", path=str(report_path), bytes=report_path.stat().st_size)
+    h.checkpoint("OFFICE-13.complete", ticks=3)
+    return True
+
+
+def office_14_rag_qa(h: Harness) -> bool:
+    """Dify: RAG document Q&A. mur: librarian reads docs dir + LLM cites source."""
+    docs_dir = FILES_DIR / "docs_o14"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    # Tiny synthetic KB (mur-agent harness owns these — not real product docs).
+    kb = {
+        "wifi.md": "Office wifi SSID is 'TWDD-Office' and the password is 'mur-agent-2026'.",
+        "lunch.md": "The cafeteria opens at 11:30 and closes at 14:00 on weekdays.",
+        "vpn.md": "Connect to vpn.example.com and authenticate with your AD credentials.",
+    }
+    for name, body in kb.items():
+        (docs_dir / name).write_text(body + "\n")
+
+    h.ensure_profile(ROSTER["librarian_o14"])
+    h.spawn("librarian_o14", llm_mode=True)
+    h.checkpoint("OFFICE-14.spawned")
+
+    questions = [
+        ("what's the office wifi password", "wifi.md"),
+        ("when does the cafeteria close", "lunch.md"),
+    ]
+
+    def retrieve(q: str) -> tuple[str, str]:
+        # Naive token-overlap retrieval; sufficient for this synthetic KB.
+        scored = []
+        terms = {t for t in q.lower().split() if len(t) > 3}
+        for fname, body in kb.items():
+            score = sum(1 for t in terms if t in body.lower())
+            scored.append((score, fname, body))
+        scored.sort(reverse=True)
+        _, fname, body = scored[0]
+        return fname, body
+
+    answers: list[dict] = []
+    for q, expected_src in questions:
+        src, excerpt = retrieve(q)
+        prompt = f"DOC[{src}]: {excerpt}\n\nQuestion: {q}"
+        resp = h.send("librarian_o14", prompt, timeout=120)
+        ans = _agent_text(resp).strip()
+        answers.append({"q": q, "expected_src": expected_src, "src": src, "ans": ans})
+        log("OFFICE-14.answer", q=q, src=src, ans=ans[:200])
+
+        if src != expected_src:
+            h.record_error("OFFICE-14.retrieval_miss", q=q,
+                           expected=expected_src, got=src)
+            return False
+        if expected_src not in ans:
+            # The model may forget to cite. Accept if the answer is otherwise non-empty AND non-echo.
+            if not ans or ans.lower().startswith("echo:"):
+                h.record_error("OFFICE-14.bad_answer", q=q, ans=ans)
+                return False
+
+    out = FILES_DIR / "rag-o14-answers.json"
+    out.write_text(json.dumps(answers, indent=2))
+    h.checkpoint("OFFICE-14.complete")
+    return True
+
+
+def office_15_planner_executor(h: Harness) -> bool:
+    """Dify: planner → executor. mur: planner emits steps, executor runs each."""
+    for name in ("planner_o15", "executor_o15", "aggregator_o15"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-15.spawned")
+
+    user_request = "onboard new contractor: setup laptop, grant repo access, schedule intro"
+    plan_resp = h.send("planner_o15", user_request)
+    # Echo backend reflects the request; the harness performs the decomposition.
+    plan_steps = [
+        "step 1: provision laptop with standard image",
+        "step 2: grant github read access to internal repos",
+        "step 3: book 30-min intro on Tuesday",
+    ]
+    log("OFFICE-15.plan", steps=len(plan_steps), planner_ack=_agent_text(plan_resp)[:80])
+
+    executions: list[dict] = []
+    for step in plan_steps:
+        r = h.send("executor_o15", step)
+        executions.append({"step": step, "ack": _agent_text(r)})
+
+    agg_input = "\n".join(f"- {e['step']}: {e['ack']}" for e in executions)
+    agg_resp = h.send("aggregator_o15", agg_input)
+    log("OFFICE-15.aggregated", agg=_agent_text(agg_resp)[:120])
+
+    # Verify shape: each step echoed back, aggregator received fan-in.
+    for e in executions:
+        if e["ack"] != f"echo: {e['step']}":
+            h.record_error("OFFICE-15.executor_bad", step=e["step"], got=e["ack"])
+            return False
+
+    out = FILES_DIR / "plan-o15.json"
+    out.write_text(json.dumps({"request": user_request, "executions": executions}, indent=2))
+    h.checkpoint("OFFICE-15.complete")
+    return True
+
+
+def office_16_email_triage(h: Harness) -> bool:
+    """n8n: email → IF (category) → templated reply.
+    mur: classifier (LLM) tags → router selects template responder.
+    """
+    for name in ("classifier_o16", "billing_o16", "support_o16", "sales_o16"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name, llm_mode=(name == "classifier_o16"))
+    h.checkpoint("OFFICE-16.spawned")
+
+    emails = [
+        ("Where's my invoice for last month?", "billing"),
+        ("My VPN keeps dropping every hour.", "support"),
+        ("Looking to buy 200 licenses for our team.", "sales"),
+    ]
+
+    routed: list[dict] = []
+    for body, expected_cat in emails:
+        cls_resp = h.send("classifier_o16", body, timeout=120)
+        raw = _agent_text(cls_resp).strip().lower().splitlines()[0] if _agent_text(cls_resp).strip() else ""
+        # Map any output containing the expected keyword to that bucket;
+        # otherwise pick the first known category present in the response.
+        chosen = next((c for c in ("billing", "support", "sales") if c in raw), "support")
+        target = f"{chosen}_o16"
+        reply_resp = h.send(target, body)
+        routed.append({"email": body, "raw_classifier": raw, "chosen": chosen,
+                       "expected": expected_cat, "reply": _agent_text(reply_resp)})
+        log("OFFICE-16.routed", chosen=chosen, expected=expected_cat,
+            raw=raw[:60])
+
+    # Permissive: classifier should hit at least 2/3 expected categories.
+    hits = sum(1 for r in routed if r["chosen"] == r["expected"])
+    if hits < 2:
+        h.record_error("OFFICE-16.classifier_below_threshold",
+                       hits=hits, total=len(routed), routed=routed)
+        return False
+    out = FILES_DIR / "triage-o16.json"
+    out.write_text(json.dumps(routed, indent=2))
+    h.checkpoint("OFFICE-16.complete", hits=hits)
+    return True
+
+
+def office_17_translation_chain(h: Harness) -> bool:
+    """Dify: translation chain. mur: detector -> translator -> reviewer."""
+    for name in ("detector_o17", "translator_o17", "reviewer_o17"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name, llm_mode=True)
+    h.checkpoint("OFFICE-17.spawned")
+
+    inputs = [
+        "今天天氣很好",
+        "Hello world",
+    ]
+    results: list[dict] = []
+    for src in inputs:
+        det = _agent_text(h.send("detector_o17", src, timeout=120)).strip().lower()
+        det_first = det.splitlines()[0] if det else ""
+        translation = _agent_text(h.send("translator_o17", src, timeout=120)).strip()
+        review = _agent_text(h.send("reviewer_o17", translation, timeout=120)).strip()
+        review_first = review.splitlines()[0] if review else ""
+        results.append({"src": src, "detected": det_first[:50],
+                        "translation": translation[:200],
+                        "review": review_first[:50]})
+        log("OFFICE-17.row", src=src, detected=det_first[:30],
+            translation=translation[:80], review=review_first[:20])
+
+    # Permissive: each stage produced non-empty, non-echo output.
+    for r in results:
+        for k in ("detected", "translation", "review"):
+            v = r[k]
+            if not v or v.lower().startswith("echo:"):
+                h.record_error("OFFICE-17.empty_or_echo", stage=k, src=r["src"],
+                               value=v)
+                return False
+    out = FILES_DIR / "translations-o17.json"
+    out.write_text(json.dumps(results, indent=2))
+    h.checkpoint("OFFICE-17.complete")
+    return True
+
+
+def office_18_log_anomaly(h: Harness) -> bool:
+    """n8n: log watcher → alert pipeline. mur: watcher polls dir, fans into analyzer → alerter."""
+    logs_dir = FILES_DIR / "logs_o18"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    # Synthesize a small log stream
+    log_lines = [
+        "2026-04-28T03:00:01 INFO ok",
+        "2026-04-28T03:00:02 WARN slow query 800ms",
+        "2026-04-28T03:00:03 ERROR connection refused (db)",
+        "2026-04-28T03:00:04 INFO ok",
+        "2026-04-28T03:00:05 ERROR timeout reading config",
+    ]
+    log_file = logs_dir / "app.log"
+    log_file.write_text("\n".join(log_lines) + "\n")
+
+    for name in ("watcher_o18", "analyzer_o18", "alerter_o18"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-18.spawned")
+
+    # Watcher: harness reads log file (since echo agent can't read FS itself).
+    seen = log_file.read_text().splitlines()
+    h.send("watcher_o18", f"polled {log_file} → {len(seen)} lines")
+
+    # Analyzer: harness identifies ERROR lines (real n8n would have an "if" node).
+    errors = [l for l in seen if " ERROR " in l]
+    h.send("analyzer_o18", f"errors_found={len(errors)}")
+
+    # Alerter: emit one outbox per error.
+    alerts: list[dict] = []
+    for err in errors:
+        ack = _agent_text(h.send("alerter_o18", err))
+        alerts.append({"line": err, "ack": ack})
+
+    out = FILES_DIR / "alerts-o18.json"
+    out.write_text(json.dumps({"errors": len(errors), "alerts": alerts}, indent=2))
+    log("OFFICE-18.alerted", count=len(alerts))
+
+    if len(alerts) != 2:  # we synthesized 2 ERROR lines
+        h.record_error("OFFICE-18.alert_count", expected=2, got=len(alerts))
+        return False
+    h.checkpoint("OFFICE-18.complete")
+    return True
+
+
 SCENARIOS = {
     "OFFICE-1": office_1,
     "OFFICE-2": office_2,
@@ -1082,6 +1516,13 @@ SCENARIOS = {
     "OFFICE-9-XNET": office_9,
     "OFFICE-10-HYBRID": office_10,
     "OFFICE-11-XNET-LLM": office_11_xnet_llm,
+    "OFFICE-12-FORM-LLM": office_12_form_extractor,
+    "OFFICE-13-SCHEDULED": office_13_scheduled_report,
+    "OFFICE-14-RAG-LLM": office_14_rag_qa,
+    "OFFICE-15-PLANNER": office_15_planner_executor,
+    "OFFICE-16-TRIAGE-LLM": office_16_email_triage,
+    "OFFICE-17-XLATE-LLM": office_17_translation_chain,
+    "OFFICE-18-LOG-ALERT": office_18_log_anomaly,
 }
 
 

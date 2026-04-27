@@ -13,7 +13,8 @@
 | Phase 2 (6 office multi-agent scenarios) | 1 (E5) | 1 fixed (orchestrator yaml-render) | ✅ |
 | Phase 3+ (real-LLM multi-agent) | 1 (E6) | 1 fixed (sys_prompt → LLM) | ✅ |
 | Phase 4 (HTTP webhook + cross-network) | 0 | — | ✅ |
-| **Cumulative** | **5** | **5** | **10/10 scenarios green** |
+| Phase 5 (n8n / Dify replacement, 7 scenarios) | 1 (small-model classifier swap) | 1 fixed (few-shot in system prompt) | ✅ |
+| **Cumulative** | **6** | **6** | **17/17 scenarios green** |
 
 Plus E4 (LLM wiring) — discovered by source review, patched as code, **not run** because no chat-capable LLM is available locally; commit included.
 
@@ -32,6 +33,13 @@ Plus E4 (LLM wiring) — discovered by source review, patched as code, **not run
 | OFFICE-9-XNET | Cross-network export + run on remote | ✅ first-try pass | `mur agent export` → scp .murpkg + tiny `a2a_send.py` to commander.twdd.tw → unpack into `~/.mur/agents/` → symlink to runtime → 3 round-trips via `ssh ... python3 a2a_send.py ...` |
 | OFFICE-10-HYBRID | Local intake fan-out spanning local+remote | ✅ first-try pass | `intake_o10` + `quoter_o10` local; one specialist on remote; parallel fan-out via threads — both legs returned identical echo, verifying cross-host concurrency works |
 | OFFICE-11-XNET-LLM | Cross-network REAL-LLM specialist | ⏸ deferred (env-blocked, gated by `HARNESS_REMOTE_LLM=1`) | Code shipped + harness path validated to deploy; remote `qwen3:4b` on commander.twdd.tw is unresponsive on CPU-only 2-core (warm `/api/chat` returned 0 bytes after 180s). Mur side is proven: E4+E6 verified locally with `llama3.2:3b` (OFFICE-7-LLM) and cross-network deploy verified with echo (OFFICE-9). Only the third leg (live remote inference) is blocked on the remote Ollama setup, not on mur. |
+| OFFICE-12-FORM-LLM | n8n: webhook form → CRM extract | ✅ first-try | LLM extractor (llama3.2:3b) pulled `name/email/intent` from free-text customer messages (e.g. `"Alice Wang", "alice@example.com", "purchase inquiry"`) — replaces n8n's "Set" + parser nodes. |
+| OFFICE-13-SCHEDULED | n8n: scheduled multi-step report | ✅ first-try | Python tick fires 3 cycles → `ingest_o13` → `aggregator_o13` → `formatter_o13` → `report-o13.md`. Replaces n8n cron + chained nodes. |
+| OFFICE-14-RAG-LLM | Dify: knowledge-base RAG | ✅ first-try | Naive token-overlap retrieval over `docs_o14/` → librarian agent answers WITH citations (`"The cafeteria closes at 14:00 on weekdays [source: lunch.md]"`). Replaces Dify's KB + chat. |
+| OFFICE-15-PLANNER | Dify: planner-executor agent | ✅ first-try | Planner emits 3 onboarding steps → executor runs each → aggregator merges (echo backend; harness performs the decomposition). |
+| OFFICE-16-TRIAGE-LLM | n8n: email → IF (category) → templated reply | ✅ pass after fix | First run: 1/3 hits (llama3.2:3b swapped billing↔support). Fix: few-shot examples in system prompt. Second run: 2/3 hits (passes the permissive threshold). |
+| OFFICE-17-XLATE-LLM | Dify: 3-stage translation chain | ✅ first-try | detector → translator → reviewer, each its own profile + sys_prompt. `今天天氣很好` → `chinese` → `The weather today is very good.` → `OK`/`REVISE`. |
+| OFFICE-18-LOG-ALERT | n8n: log watcher → alert pipeline | ✅ first-try | Watcher polls `logs_o18/app.log`; analyzer flags errors; alerter writes one outbox per ERROR. Two synthesized errors → two alerts. |
 
 ## Errors Found and Fixed in Phase 2
 

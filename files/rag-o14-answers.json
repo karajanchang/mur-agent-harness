@@ -1,0 +1,14 @@
+[
+  {
+    "q": "what's the office wifi password",
+    "expected_src": "wifi.md",
+    "src": "wifi.md",
+    "ans": "The office WiFi password is 'mur-agent-2026'. [source: wifi.md]"
+  },
+  {
+    "q": "when does the cafeteria close",
+    "expected_src": "lunch.md",
+    "src": "lunch.md",
+    "ans": "The cafeteria closes at 14:00 on weekdays. [source: lunch.md]"
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "request": "onboard new contractor: setup laptop, grant repo access, schedule intro",
+  "executions": [
+    {
+      "step": "step 1: provision laptop with standard image",
+      "ack": "echo: step 1: provision laptop with standard image"
+    },
+    {
+      "step": "step 2: grant github read access to internal repos",
+      "ack": "echo: step 2: grant github read access to internal repos"
+    },
+    {
+      "step": "step 3: book 30-min intro on Tuesday",
+      "ack": "echo: step 3: book 30-min intro on Tuesday"
+    }
+  ]
+}

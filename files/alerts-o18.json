@@ -1,0 +1,13 @@
+{
+  "errors": 2,
+  "alerts": [
+    {
+      "line": "2026-04-28T03:00:03 ERROR connection refused (db)",
+      "ack": "echo: 2026-04-28T03:00:03 ERROR connection refused (db)"
+    },
+    {
+      "line": "2026-04-28T03:00:05 ERROR timeout reading config",
+      "ack": "echo: 2026-04-28T03:00:05 ERROR timeout reading config"
+    }
+  ]
+}
