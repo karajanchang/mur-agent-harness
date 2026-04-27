@@ -16,10 +16,22 @@ files/                Sample scenario artifacts (LLM outputs, tickets, outboxes)
 run.md                Phase 1 single-agent feature-coverage notes
 ```
 
-## Run it
+## Two ways to use it
+
+### A. Pure-bash runbook (`bash_demo.sh`)
+**Use this if you want to see "what mur agent feels like as a Unix tool"**, or to convince yourself the Python harness isn't doing anything magical.
 
 ```bash
-# all default scenarios (10/10 pass on a clean host)
+./bash_demo.sh
+```
+
+End-to-end pipeline of real shell commands — `mur agent create`, `mur agent export`, `tar`, `scp`, `ssh`, `sed` to rewrite the profile name, `nohup` to spawn on the remote, `nc -U` to dial the agent's Unix socket and exchange JSON-RPC, `jq` to parse the reply. No Python anywhere. Same building blocks any sysadmin already has.
+
+### B. Multi-scenario harness (`harness.py`)
+**Use this for orchestration patterns** — parallel fan-out, heartbeat-driven recovery, HTTP webhook ingress, multi-turn dialog history, DAG dependency graphs. Bash gets unwieldy past ~3 simultaneous agents; Python's `threading` + `http.server` + `subprocess` is the right tool above that bar.
+
+```bash
+# all default scenarios
 python3 harness.py --scenario all
 
 # one scenario

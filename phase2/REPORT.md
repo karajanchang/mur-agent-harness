@@ -15,7 +15,14 @@
 | Phase 4 (HTTP webhook + cross-network) | 0 | — | ✅ |
 | Phase 5 (n8n / Dify replacement, 7 scenarios) | 1 (small-model classifier swap) | 1 fixed (few-shot in system prompt) | ✅ |
 | Phase 6 (chaos / scale / state / HITL / DAG, 5 scenarios) | 0 | — | ✅ |
-| **Cumulative** | **6** | **6** | **22/22 scenarios green** |
+| Phase 7 (pure-bash runbook, no Python) | 0 | — | ✅ |
+| **Cumulative** | **6** | **6** | **22/22 + bash demo green** |
+
+### Phase 7 — pure-bash cross-network demo
+
+`bash_demo.sh` proves mur agents are unix-composable: `mur agent create` → `mur agent export` → `scp .murpkg` → `ssh + tar xf + sed + ln -sf` → `nohup mur_agent_<name> &` → `printf JSON | nc -q 1 -U sock | jq -r '.result.messages[-1].parts[0].text'` → 3 round-trips, all assertions pass, automatic cleanup via `trap EXIT`.
+
+This addresses the question "is the Python harness actually testing real behaviour, or is it just mocking?" — the bash demo invokes the same `mur agent ...` CLI commands and gets the same results, validating that every Python `subprocess.run([...])` in the harness is a transparent passthrough to the real CLI.
 
 Plus E4 (LLM wiring) — discovered by source review, patched as code, **not run** because no chat-capable LLM is available locally; commit included.
 
