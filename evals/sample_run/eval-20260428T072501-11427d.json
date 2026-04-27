@@ -1,0 +1,233 @@
+{
+  "run_id": "eval-20260428T072501-11427d",
+  "suite": "customer-support-eval-v1",
+  "agent": "support_bot",
+  "started_at": "2026-04-28T07:25:01",
+  "finished_at": "2026-04-28T07:25:05",
+  "matrix": {
+    "providers": [
+      "echo",
+      "ollama/llama3.2:3b"
+    ],
+    "system_prompts": [
+      "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+    ]
+  },
+  "results": [
+    {
+      "cell": {
+        "provider": "echo",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "invoice_is_billing",
+      "input": "Where is my invoice for last month?",
+      "response": "echo: Where is my invoice for last month?",
+      "passed": false,
+      "checks": [
+        {
+          "kind": "equals",
+          "passed": false,
+          "detail": "expected='billing' got='echo: where is my invoice for last month?'"
+        }
+      ],
+      "latency_ms": 16,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "echo",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "vpn_is_support",
+      "input": "My VPN keeps disconnecting every hour.",
+      "response": "echo: My VPN keeps disconnecting every hour.",
+      "passed": false,
+      "checks": [
+        {
+          "kind": "equals",
+          "passed": false,
+          "detail": "expected='support' got='echo: my vpn keeps disconnecting every hour.'"
+        }
+      ],
+      "latency_ms": 11,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "echo",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "licenses_is_sales",
+      "input": "I want to buy 200 licenses for our team.",
+      "response": "echo: I want to buy 200 licenses for our team.",
+      "passed": false,
+      "checks": [
+        {
+          "kind": "equals",
+          "passed": false,
+          "detail": "expected='sales' got='echo: i want to buy 200 licenses for our team.'"
+        }
+      ],
+      "latency_ms": 11,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "echo",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "short_reply",
+      "input": "Refund?",
+      "response": "echo: Refund?",
+      "passed": false,
+      "checks": [
+        {
+          "kind": "length_max",
+          "passed": true,
+          "detail": "len=13 need<=30"
+        },
+        {
+          "kind": "contains",
+          "passed": false,
+          "detail": "any_of=['billing', 'support', 'sales'] hit=False"
+        }
+      ],
+      "latency_ms": 11,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "echo",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "not_apologetic",
+      "input": "Where is my invoice?",
+      "response": "echo: Where is my invoice?",
+      "passed": true,
+      "checks": [
+        {
+          "kind": "not_contains",
+          "passed": true,
+          "detail": "forbidden=[\"i'm sorry\", 'i cannot', 'i apologize'] found=False"
+        }
+      ],
+      "latency_ms": 10,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "ollama/llama3.2:3b",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "invoice_is_billing",
+      "input": "Where is my invoice for last month?",
+      "response": "billing",
+      "passed": true,
+      "checks": [
+        {
+          "kind": "equals",
+          "passed": true,
+          "detail": "expected='billing' got='billing'"
+        }
+      ],
+      "latency_ms": 2688,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "ollama/llama3.2:3b",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "vpn_is_support",
+      "input": "My VPN keeps disconnecting every hour.",
+      "response": "support",
+      "passed": true,
+      "checks": [
+        {
+          "kind": "equals",
+          "passed": true,
+          "detail": "expected='support' got='support'"
+        }
+      ],
+      "latency_ms": 207,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "ollama/llama3.2:3b",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "licenses_is_sales",
+      "input": "I want to buy 200 licenses for our team.",
+      "response": "sales",
+      "passed": true,
+      "checks": [
+        {
+          "kind": "equals",
+          "passed": true,
+          "detail": "expected='sales' got='sales'"
+        }
+      ],
+      "latency_ms": 196,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "ollama/llama3.2:3b",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "short_reply",
+      "input": "Refund?",
+      "response": "billing",
+      "passed": true,
+      "checks": [
+        {
+          "kind": "length_max",
+          "passed": true,
+          "detail": "len=7 need<=30"
+        },
+        {
+          "kind": "contains",
+          "passed": true,
+          "detail": "any_of=['billing', 'support', 'sales'] hit=True"
+        }
+      ],
+      "latency_ms": 343,
+      "error": null
+    },
+    {
+      "cell": {
+        "provider": "ollama/llama3.2:3b",
+        "system_prompt": "You classify customer messages into ONE category from the set\n{billing, support, sales}. Reply with EXACTLY one lowercase word\nfrom that set. No preamble, no punctuation, no quotes.\n\nExamples:\n'Where is my invoice?' -> billing\n'My VPN dropped.' -> support\n'Pricing for 100 licenses?' -> sales\n'Refund please.' -> billing\n"
+      },
+      "test_id": "not_apologetic",
+      "input": "Where is my invoice?",
+      "response": "billing",
+      "passed": true,
+      "checks": [
+        {
+          "kind": "not_contains",
+          "passed": true,
+          "detail": "forbidden=[\"i'm sorry\", 'i cannot', 'i apologize'] found=False"
+        }
+      ],
+      "latency_ms": 199,
+      "error": null
+    }
+  ],
+  "summary": {
+    "total": 10,
+    "passed": 6,
+    "failed": 4,
+    "by_provider": {
+      "echo": {
+        "pass": 1,
+        "fail": 4
+      },
+      "ollama/llama3.2:3b": {
+        "pass": 5,
+        "fail": 0
+      }
+    }
+  }
+}

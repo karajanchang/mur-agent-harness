@@ -1,0 +1,61 @@
+# Example eval suite: customer support classification.
+# Compares an `echo` baseline (expected to fail every check) against a
+# real LLM (llama3.2:3b). Demonstrates the full schema in one file.
+
+name: customer-support-eval-v1
+agent: support_bot
+
+matrix:
+  providers:
+    - echo                    # control: should fail content checks
+    - ollama/llama3.2:3b      # real model
+  system_prompts:
+    # Inline prompt rather than a file ref so the example is self-contained.
+    - |
+      You classify customer messages into ONE category from the set
+      {billing, support, sales}. Reply with EXACTLY one lowercase word
+      from that set. No preamble, no punctuation, no quotes.
+
+      Examples:
+      'Where is my invoice?' -> billing
+      'My VPN dropped.' -> support
+      'Pricing for 100 licenses?' -> sales
+      'Refund please.' -> billing
+
+test_cases:
+  - id: invoice_is_billing
+    input: "Where is my invoice for last month?"
+    expects:
+      - kind: equals
+        case: insensitive
+        value: billing
+
+  - id: vpn_is_support
+    input: "My VPN keeps disconnecting every hour."
+    expects:
+      - kind: equals
+        case: insensitive
+        value: support
+
+  - id: licenses_is_sales
+    input: "I want to buy 200 licenses for our team."
+    expects:
+      - kind: equals
+        case: insensitive
+        value: sales
+
+  - id: short_reply
+    input: "Refund?"
+    expects:
+      - kind: length_max
+        value: 30
+      - kind: contains
+        any_of: [billing, support, sales]
+        case: insensitive
+
+  - id: not_apologetic
+    input: "Where is my invoice?"
+    expects:
+      - kind: not_contains
+        any_of: ["I'm sorry", "I cannot", "I apologize"]
+        case: insensitive

@@ -16,7 +16,21 @@ files/                Sample scenario artifacts (LLM outputs, tickets, outboxes)
 run.md                Phase 1 single-agent feature-coverage notes
 ```
 
-## Two ways to use it
+## Three ways to use it
+
+### 0. Eval suite runner (`evals/runner.py`) — Promptfoo-style
+**Use this when iterating on a system prompt, comparing LLM providers side by side, or gating CI on agent behaviour.** Reads an `agent.eval.yaml` (or `.json`) describing test cases + a provider × system_prompt matrix; spins up an ephemeral mur agent per matrix cell; scores each response; emits a side-by-side markdown matrix + machine-readable JSON.
+
+```bash
+python3 evals/runner.py evals/examples/customer-support.eval.yaml
+# → 5 test cases × 2 providers (echo + llama3.2:3b) → markdown report
+```
+
+A complete sample run lives under `evals/sample_run/` (echo fails 4/5, llama3.2:3b passes 5/5 on the customer-support classification suite). Schema, scorers (`contains`, `equals`, `regex`, `length_*`, `json_shape`, `llm_judge`), and the architectural rationale are in [`phase9/design.md`](phase9/design.md).
+
+This is the prototype for what becomes `mur eval` once the schema stabilises (see Phase 3 in `phase9/design.md`).
+
+## Two more ways to use it
 
 ### A. Pure-bash runbook (`bash_demo.sh`)
 **Use this if you want to see "what mur agent feels like as a Unix tool"**, or to convince yourself the Python harness isn't doing anything magical.
