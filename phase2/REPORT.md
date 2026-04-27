@@ -14,7 +14,8 @@
 | Phase 3+ (real-LLM multi-agent) | 1 (E6) | 1 fixed (sys_prompt → LLM) | ✅ |
 | Phase 4 (HTTP webhook + cross-network) | 0 | — | ✅ |
 | Phase 5 (n8n / Dify replacement, 7 scenarios) | 1 (small-model classifier swap) | 1 fixed (few-shot in system prompt) | ✅ |
-| **Cumulative** | **6** | **6** | **17/17 scenarios green** |
+| Phase 6 (chaos / scale / state / HITL / DAG, 5 scenarios) | 0 | — | ✅ |
+| **Cumulative** | **6** | **6** | **22/22 scenarios green** |
 
 Plus E4 (LLM wiring) — discovered by source review, patched as code, **not run** because no chat-capable LLM is available locally; commit included.
 
@@ -40,6 +41,11 @@ Plus E4 (LLM wiring) — discovered by source review, patched as code, **not run
 | OFFICE-16-TRIAGE-LLM | n8n: email → IF (category) → templated reply | ✅ pass after fix | First run: 1/3 hits (llama3.2:3b swapped billing↔support). Fix: few-shot examples in system prompt. Second run: 2/3 hits (passes the permissive threshold). |
 | OFFICE-17-XLATE-LLM | Dify: 3-stage translation chain | ✅ first-try | detector → translator → reviewer, each its own profile + sys_prompt. `今天天氣很好` → `chinese` → `The weather today is very good.` → `OK`/`REVISE`. |
 | OFFICE-18-LOG-ALERT | n8n: log watcher → alert pipeline | ✅ first-try | Watcher polls `logs_o18/app.log`; analyzer flags errors; alerter writes one outbox per ERROR. Two synthesized errors → two alerts. |
+| OFFICE-19-CHAOS | Failure injection + recovery | ✅ first-try | 3 messages through stage1→2→3, then SIGKILL stage2; heartbeat detects + restarts within 6s; 3 post-chaos messages all complete via the new stage2. |
+| OFFICE-20-MULTI-TENANT | 10 concurrent ticket workflows | ✅ first-try | Threaded fan-out of 10 tickets to a 4-agent fleet (intake + 3 specialists); 0.05s wallclock; distribution 4/3/3 across billing/support/sales as expected. |
+| OFFICE-21-DIALOG | Multi-turn stateful dialog | ✅ first-try | mur agents are stateless per call; harness threads conversation history into each prompt. Echo replies on turn 3 contain all 3 prior user turns — proves history is being threaded. |
+| OFFICE-23-APPROVAL | Human-in-the-loop approval gate | ✅ first-try | Drafter writes draft → workflow blocks polling for `approval-o23.flag` → simulated approver thread writes flag after 1.5s → publisher proceeds and writes `published-o23.md`. |
+| OFFICE-24-DAG | DAG: A ∧ B → C | ✅ first-try | A and B run in parallel via threads; C waits on both, receives merged JSON of A+B results. Verified C's ack contains references to both A and B input. |
 
 ## Errors Found and Fixed in Phase 2
 

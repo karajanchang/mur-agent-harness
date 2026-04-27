@@ -250,6 +250,31 @@ ROSTER: dict[str, AgentSpec] = {
     "alerter_o18": AgentSpec("alerter_o18",
                              accepts_from=["analyzer_o18", "*"],
                              fs_write=[str(FILES_DIR)]),
+    # ---- Phase 6 (failure / scale / state / HITL / DAG) ----
+    # OFFICE-19 chaos: a 3-stage echo pipeline; we kill stage 2 mid-flow.
+    "stage1_o19": AgentSpec("stage1_o19", sends_to=["stage2_o19"]),
+    "stage2_o19": AgentSpec("stage2_o19", accepts_from=["stage1_o19", "*"],
+                            sends_to=["stage3_o19"]),
+    "stage3_o19": AgentSpec("stage3_o19", accepts_from=["stage2_o19", "*"]),
+    # OFFICE-20 multi-tenant: 3 specialists serving 10 concurrent tickets.
+    "intake_o20": AgentSpec("intake_o20",
+                            sends_to=["billing_o20", "support_o20", "sales_o20"]),
+    "billing_o20": AgentSpec("billing_o20", accepts_from=["intake_o20", "*"]),
+    "support_o20": AgentSpec("support_o20", accepts_from=["intake_o20", "*"]),
+    "sales_o20": AgentSpec("sales_o20", accepts_from=["intake_o20", "*"]),
+    # OFFICE-21 stateful dialog: single agent, harness threads history.
+    "concierge_o21": AgentSpec("concierge_o21"),
+    # OFFICE-23 approval gate.
+    "drafter_o23": AgentSpec("drafter_o23", fs_write=[str(FILES_DIR)]),
+    "publisher_o23": AgentSpec("publisher_o23",
+                                accepts_from=["drafter_o23", "*"],
+                                fs_read=[str(FILES_DIR)],
+                                fs_write=[str(FILES_DIR)]),
+    # OFFICE-24 DAG: A and B parallel, C depends on both.
+    "node_a_o24": AgentSpec("node_a_o24"),
+    "node_b_o24": AgentSpec("node_b_o24"),
+    "node_c_o24": AgentSpec("node_c_o24",
+                             accepts_from=["node_a_o24", "node_b_o24", "*"]),
 }
 
 
@@ -1504,6 +1529,270 @@ def office_18_log_anomaly(h: Harness) -> bool:
     return True
 
 
+def office_19_chaos(h: Harness) -> bool:
+    """Kill stage2 mid-pipeline; harness heartbeat detects + restarts; retries succeed."""
+    import threading as _th
+    for name in ("stage1_o19", "stage2_o19", "stage3_o19"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-19.spawned")
+
+    # Send 3 messages through stage1 -> stage2 -> stage3.
+    pre_results: list[str] = []
+    for i in range(3):
+        h.send("stage1_o19", f"pre-{i}")
+        h.send("stage2_o19", f"pre-{i}")
+        r = h.send("stage3_o19", f"pre-{i}")
+        pre_results.append(_agent_text(r))
+    log("OFFICE-19.pre_chaos_done", count=len(pre_results))
+
+    # Inject chaos: SIGKILL stage2 mid-pipeline.
+    pid = h.runs["stage2_o19"].pid
+    log("OFFICE-19.killing_stage2", pid=pid)
+    os.kill(pid, signal.SIGKILL)
+
+    # Wait up to 12s for heartbeat to detect + restart (HB cycle = 3s, threshold = 2 = ~6s).
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        run = h.runs.get("stage2_o19")
+        if run and run.alive and run.pid != pid:
+            log("OFFICE-19.recovered", new_pid=run.pid)
+            break
+        time.sleep(0.4)
+    else:
+        h.record_error("OFFICE-19.no_recovery")
+        return False
+
+    # Post-chaos: send 3 more, verify they all complete.
+    post_results: list[str] = []
+    for i in range(3):
+        h.send("stage1_o19", f"post-{i}")
+        try:
+            r2 = h.send("stage2_o19", f"post-{i}", timeout=20)
+            r3 = h.send("stage3_o19", f"post-{i}")
+            if _agent_text(r2) != f"echo: post-{i}":
+                h.record_error("OFFICE-19.post_stage2_bad", got=_agent_text(r2))
+                return False
+            post_results.append(_agent_text(r3))
+        except Exception as e:
+            h.record_error("OFFICE-19.post_send_exc", i=i, error=str(e))
+            return False
+    log("OFFICE-19.post_chaos_done", count=len(post_results))
+
+    out = FILES_DIR / "chaos-o19.json"
+    out.write_text(json.dumps({"pre": pre_results, "post": post_results}))
+    h.checkpoint("OFFICE-19.complete")
+    return True
+
+
+def office_20_multi_tenant(h: Harness) -> bool:
+    """10 ticket workflows fired in parallel against a shared agent fleet."""
+    import threading as _th
+    for name in ("intake_o20", "billing_o20", "support_o20", "sales_o20"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-20.spawned")
+
+    tickets = [
+        {"id": i, "category": ["billing", "support", "sales"][i % 3], "body": f"customer-{i} request"}
+        for i in range(10)
+    ]
+    results: list[dict] = []
+    results_lock = _th.Lock()
+    errors: list[str] = []
+
+    def worker(t: dict) -> None:
+        try:
+            h.send("intake_o20", json.dumps(t))
+            specialist = f"{t['category']}_o20"
+            r = h.send(specialist, t["body"])
+            with results_lock:
+                results.append({"id": t["id"], "category": t["category"],
+                                "ack": _agent_text(r)})
+        except Exception as e:
+            with results_lock:
+                errors.append(f"ticket {t['id']}: {e}")
+
+    t0 = time.time()
+    threads = [_th.Thread(target=worker, args=(t,)) for t in tickets]
+    for th in threads: th.start()
+    for th in threads: th.join(timeout=20)
+    elapsed = round(time.time() - t0, 2)
+    log("OFFICE-20.completed", count=len(results), elapsed_s=elapsed,
+        errors=len(errors))
+
+    if errors:
+        h.record_error("OFFICE-20.worker_errors", errors=errors[:5])
+        return False
+    if len(results) != 10:
+        h.record_error("OFFICE-20.partial", got=len(results), expected=10)
+        return False
+    # Distribution sanity: 4/3/3 or 3/4/3 etc.
+    by_cat: dict[str, int] = {"billing": 0, "support": 0, "sales": 0}
+    for r in results:
+        by_cat[r["category"]] += 1
+    log("OFFICE-20.distribution", **by_cat)
+
+    out = FILES_DIR / "multi-tenant-o20.json"
+    out.write_text(json.dumps({"distribution": by_cat, "elapsed_s": elapsed,
+                                "results": results}, indent=2))
+    h.checkpoint("OFFICE-20.complete", elapsed_s=elapsed)
+    return True
+
+
+def office_21_stateful_dialog(h: Harness) -> bool:
+    """Multi-turn dialog; harness keeps history and feeds it on every turn.
+
+    mur agents are stateless across `message/send` calls; the harness rebuilds
+    context each turn. This is exactly how chat UIs above the LLM layer work.
+    """
+    h.ensure_profile(ROSTER["concierge_o21"])
+    h.spawn("concierge_o21")
+    h.checkpoint("OFFICE-21.spawned")
+
+    history: list[dict] = []
+    user_turns = [
+        "hello",
+        "i need help with my office wifi",
+        "what was my first message?",  # tests history coverage
+    ]
+    # Build prompt = serialized history + current turn each time.
+    for u in user_turns:
+        history.append({"role": "user", "content": u})
+        prompt = "\n".join(f"{h_['role']}: {h_['content']}" for h_ in history)
+        r = h.send("concierge_o21", prompt)
+        agent = _agent_text(r)
+        history.append({"role": "agent", "content": agent})
+        log("OFFICE-21.turn", n=len(history)//2, user=u, agent=agent[:100])
+
+    # Echo backend echoes the whole prompt — assert each agent reply contains
+    # ALL prior user turns (history is being threaded).
+    last_agent = history[-1]["content"]
+    for u in user_turns:
+        if u not in last_agent:
+            h.record_error("OFFICE-21.history_lost", missing=u, last=last_agent[:200])
+            return False
+    out = FILES_DIR / "dialog-o21.json"
+    out.write_text(json.dumps(history, indent=2))
+    h.checkpoint("OFFICE-21.complete", turns=len(user_turns))
+    return True
+
+
+def office_23_approval_gate(h: Harness) -> bool:
+    """HITL: drafter emits → workflow blocks on approval file → publisher proceeds."""
+    import threading as _th
+    for name in ("drafter_o23", "publisher_o23"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-23.spawned")
+
+    draft_path = FILES_DIR / "draft-o23.md"
+    approval_path = FILES_DIR / "approval-o23.flag"
+    published_path = FILES_DIR / "published-o23.md"
+    for p in (draft_path, approval_path, published_path):
+        if p.exists(): p.unlink()
+
+    # Drafter writes draft (echo agent acks; harness writes the actual file).
+    h.send("drafter_o23", "draft press release")
+    draft_path.write_text("# Draft\nThis announcement is pending approval.\n")
+    log("OFFICE-23.drafted", path=str(draft_path))
+
+    # Background "approver" simulates a human flipping the flag after a delay.
+    approval_delay_s = 1.5
+    def approve_later() -> None:
+        time.sleep(approval_delay_s)
+        approval_path.write_text("approved by manager\n")
+        log("OFFICE-23.approved")
+    _th.Thread(target=approve_later, daemon=True).start()
+
+    # Workflow polls for approval — this is the HITL gate.
+    t0 = time.time()
+    deadline = t0 + 5
+    while time.time() < deadline:
+        if approval_path.exists():
+            break
+        time.sleep(0.1)
+    else:
+        h.record_error("OFFICE-23.approval_timeout")
+        return False
+    wait_s = round(time.time() - t0, 2)
+    log("OFFICE-23.gate_passed", wait_s=wait_s)
+
+    # Publisher proceeds.
+    h.send("publisher_o23", "publish approved draft")
+    published_path.write_text(draft_path.read_text() + "\n---\nApproved.\n")
+    if not published_path.exists():
+        h.record_error("OFFICE-23.publish_failed")
+        return False
+
+    h.checkpoint("OFFICE-23.complete", approval_wait_s=wait_s)
+    return True
+
+
+def office_24_dag_deps(h: Harness) -> bool:
+    """DAG: node_a_o24 ‖ node_b_o24, then node_c_o24 (after both)."""
+    import threading as _th
+    for name in ("node_a_o24", "node_b_o24", "node_c_o24"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-24.spawned")
+
+    # Parallel A and B
+    parallel_results: dict[str, dict] = {}
+    plock = _th.Lock()
+
+    def call(name: str, msg: str) -> None:
+        r = h.send(name, msg)
+        with plock:
+            parallel_results[name] = {
+                "task": r["id"],
+                "ack": _agent_text(r),
+                "completed_at": r["completedAt"],
+            }
+
+    t0 = time.time()
+    threads = [
+        _th.Thread(target=call, args=("node_a_o24", "compute A: fetch users")),
+        _th.Thread(target=call, args=("node_b_o24", "compute B: fetch orders")),
+    ]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=10)
+
+    if set(parallel_results.keys()) != {"node_a_o24", "node_b_o24"}:
+        h.record_error("OFFICE-24.parallel_missing", got=list(parallel_results.keys()))
+        return False
+
+    # C depends on A and B — pass both results in.
+    merged_input = json.dumps({k: v["ack"] for k, v in parallel_results.items()})
+    rc = h.send("node_c_o24", merged_input)
+    parallel_done_at = max(v["completed_at"] for v in parallel_results.values())
+
+    log("OFFICE-24.dag_done",
+        a_task=parallel_results["node_a_o24"]["task"],
+        b_task=parallel_results["node_b_o24"]["task"],
+        c_task=rc["id"],
+        elapsed_s=round(time.time() - t0, 2))
+
+    # Verify C's ack referenced A and B output.
+    c_ack = _agent_text(rc)
+    if "compute A" not in c_ack or "compute B" not in c_ack:
+        # Echo prefixes "echo: " to whatever was sent (the merged json).
+        # The merged json contains the A/B ack strings, which contain the
+        # original prompts. Look for those.
+        h.record_error("OFFICE-24.fanin_lost", c_ack=c_ack[:200])
+        return False
+
+    out = FILES_DIR / "dag-o24.json"
+    out.write_text(json.dumps({
+        "a": parallel_results["node_a_o24"],
+        "b": parallel_results["node_b_o24"],
+        "c": {"task": rc["id"], "ack": c_ack},
+        "parallel_done_at": parallel_done_at,
+    }, indent=2))
+    h.checkpoint("OFFICE-24.complete")
+    return True
+
+
 SCENARIOS = {
     "OFFICE-1": office_1,
     "OFFICE-2": office_2,
@@ -1523,6 +1812,11 @@ SCENARIOS = {
     "OFFICE-16-TRIAGE-LLM": office_16_email_triage,
     "OFFICE-17-XLATE-LLM": office_17_translation_chain,
     "OFFICE-18-LOG-ALERT": office_18_log_anomaly,
+    "OFFICE-19-CHAOS": office_19_chaos,
+    "OFFICE-20-MULTI-TENANT": office_20_multi_tenant,
+    "OFFICE-21-DIALOG": office_21_stateful_dialog,
+    "OFFICE-23-APPROVAL": office_23_approval_gate,
+    "OFFICE-24-DAG": office_24_dag_deps,
 }
 
 

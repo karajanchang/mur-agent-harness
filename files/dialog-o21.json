@@ -1,0 +1,26 @@
+[
+  {
+    "role": "user",
+    "content": "hello"
+  },
+  {
+    "role": "agent",
+    "content": "echo: user: hello"
+  },
+  {
+    "role": "user",
+    "content": "i need help with my office wifi"
+  },
+  {
+    "role": "agent",
+    "content": "echo: user: hello\nagent: echo: user: hello\nuser: i need help with my office wifi"
+  },
+  {
+    "role": "user",
+    "content": "what was my first message?"
+  },
+  {
+    "role": "agent",
+    "content": "echo: user: hello\nagent: echo: user: hello\nuser: i need help with my office wifi\nagent: echo: user: hello\nagent: echo: user: hello\nuser: i need help with my office wifi\nuser: what was my first message?"
+  }
+]

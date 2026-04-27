@@ -1,0 +1,60 @@
+{
+  "distribution": {
+    "billing": 4,
+    "support": 3,
+    "sales": 3
+  },
+  "elapsed_s": 0.07,
+  "results": [
+    {
+      "id": 1,
+      "category": "support",
+      "ack": "echo: customer-1 request"
+    },
+    {
+      "id": 2,
+      "category": "sales",
+      "ack": "echo: customer-2 request"
+    },
+    {
+      "id": 0,
+      "category": "billing",
+      "ack": "echo: customer-0 request"
+    },
+    {
+      "id": 6,
+      "category": "billing",
+      "ack": "echo: customer-6 request"
+    },
+    {
+      "id": 5,
+      "category": "sales",
+      "ack": "echo: customer-5 request"
+    },
+    {
+      "id": 4,
+      "category": "support",
+      "ack": "echo: customer-4 request"
+    },
+    {
+      "id": 3,
+      "category": "billing",
+      "ack": "echo: customer-3 request"
+    },
+    {
+      "id": 7,
+      "category": "support",
+      "ack": "echo: customer-7 request"
+    },
+    {
+      "id": 9,
+      "category": "billing",
+      "ack": "echo: customer-9 request"
+    },
+    {
+      "id": 8,
+      "category": "sales",
+      "ack": "echo: customer-8 request"
+    }
+  ]
+}

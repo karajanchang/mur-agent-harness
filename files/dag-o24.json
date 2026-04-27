@@ -1,0 +1,17 @@
+{
+  "a": {
+    "task": "task-019dd121-adf9-7dc1-a883-3529aa8abb6b",
+    "ack": "echo: compute A: fetch users",
+    "completed_at": "2026-04-27T22:48:58.617317+00:00"
+  },
+  "b": {
+    "task": "task-019dd121-adfa-7c71-8a07-12a26b07443a",
+    "ack": "echo: compute B: fetch orders",
+    "completed_at": "2026-04-27T22:48:58.618935+00:00"
+  },
+  "c": {
+    "task": "task-019dd121-ae08-7953-92e1-323263930bed",
+    "ack": "echo: {\"node_a_o24\": \"echo: compute A: fetch users\", \"node_b_o24\": \"echo: compute B: fetch orders\"}"
+  },
+  "parallel_done_at": "2026-04-27T22:48:58.618935+00:00"
+}
