@@ -1,0 +1,6 @@
+{"kind": "shutdown", "message": "SIGTERM", "mur.agent.name": "step_a_o29", "mur.agent.uuid": "019dd12a-58eb-79c2-91cf-1403b404f94e", "ts": "2026-04-27T22:58:27.050576+00:00"}
+{"kind": "shutdown", "message": "SIGTERM", "mur.agent.name": "step_b_o29", "mur.agent.uuid": "019dd12a-5963-7530-a691-03252de218be", "ts": "2026-04-27T22:58:27.121875+00:00"}
+{"kind": "shutdown", "message": "SIGTERM", "mur.agent.name": "step_c_o29", "mur.agent.uuid": "019dd12a-59dd-7191-a1e4-37781d4b3744", "ts": "2026-04-27T22:58:27.198104+00:00"}
+{"kind": "shutdown", "message": "SIGTERM", "mur.agent.name": "step_a_o29", "mur.agent.uuid": "019dd12a-58eb-79c2-91cf-1403b404f94e", "ts": "2026-04-27T22:59:42.719559+00:00"}
+{"kind": "shutdown", "message": "SIGTERM", "mur.agent.name": "step_b_o29", "mur.agent.uuid": "019dd12a-5963-7530-a691-03252de218be", "ts": "2026-04-27T22:59:42.793961+00:00"}
+{"kind": "shutdown", "message": "SIGTERM", "mur.agent.name": "step_c_o29", "mur.agent.uuid": "019dd12a-59dd-7191-a1e4-37781d4b3744", "ts": "2026-04-27T22:59:42.868783+00:00"}

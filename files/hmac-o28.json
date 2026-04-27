@@ -1,0 +1,21 @@
+{
+  "received": [
+    {
+      "payload": {
+        "event": "checkout.completed",
+        "amount": 99
+      },
+      "ack": "echo: {\"event\": \"checkout.completed\", \"amount\": 99}"
+    }
+  ],
+  "rejected": [
+    {
+      "sig": "deadbeefdeadbeef",
+      "expected": "e046873038d84192"
+    },
+    {
+      "sig": "e046873038d84192",
+      "expected": "73eb75ac97e3d64c"
+    }
+  ]
+}

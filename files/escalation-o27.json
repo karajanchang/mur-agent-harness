@@ -1,0 +1,20 @@
+[
+  {
+    "body": "what's the wifi password?",
+    "classified": "simple",
+    "route": "junior",
+    "expected": "junior"
+  },
+  {
+    "body": "we need a custom integration with our 1990s mainframe",
+    "classified": "complex",
+    "route": "senior",
+    "expected": "senior"
+  },
+  {
+    "body": "?",
+    "classified": "unknown",
+    "route": "senior",
+    "expected": "senior"
+  }
+]

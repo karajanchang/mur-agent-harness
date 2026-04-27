@@ -16,7 +16,8 @@
 | Phase 5 (n8n / Dify replacement, 7 scenarios) | 1 (small-model classifier swap) | 1 fixed (few-shot in system prompt) | ✅ |
 | Phase 6 (chaos / scale / state / HITL / DAG, 5 scenarios) | 0 | — | ✅ |
 | Phase 7 (pure-bash runbook, no Python) | 0 | — | ✅ |
-| **Cumulative** | **6** | **6** | **22/22 + bash demo green** |
+| Phase 8 (production patterns: idempotency / escalation / HMAC / audit, 4 scenarios) | 0 | — | ✅ |
+| **Cumulative** | **6** | **6** | **26/26 + bash demo green** |
 
 ### Phase 7 — pure-bash cross-network demo
 
@@ -53,6 +54,10 @@ Plus E4 (LLM wiring) — discovered by source review, patched as code, **not run
 | OFFICE-21-DIALOG | Multi-turn stateful dialog | ✅ first-try | mur agents are stateless per call; harness threads conversation history into each prompt. Echo replies on turn 3 contain all 3 prior user turns — proves history is being threaded. |
 | OFFICE-23-APPROVAL | Human-in-the-loop approval gate | ✅ first-try | Drafter writes draft → workflow blocks polling for `approval-o23.flag` → simulated approver thread writes flag after 1.5s → publisher proceeds and writes `published-o23.md`. |
 | OFFICE-24-DAG | DAG: A ∧ B → C | ✅ first-try | A and B run in parallel via threads; C waits on both, receives merged JSON of A+B results. Verified C's ack contains references to both A and B input. |
+| OFFICE-26-IDEMPOTENT | Duplicate-request protection | ✅ first-try | Same `request_id` retried 3× (network-flakiness simulation); harness dedups via in-memory set + on-disk outbox check. Outcomes: `["processed", "deduped", "deduped"]`; only one outbox file written. |
+| OFFICE-27-ESCALATE-LLM | Confidence-based escalation | ✅ first-try | LLM classifier (llama3.2:3b with few-shot prompt) tags each request `simple`/`complex`/`unknown`; `simple` → junior agent, anything else → senior. **3/3 perfect routing** in this run, including the ambiguous `?` → senior. |
+| OFFICE-28-HMAC-WEBHOOK | Production-grade signed webhooks | ✅ first-try | `X-Signature: HMAC-SHA256(body, shared_secret)` verified on every POST. Tested all three paths: valid → 200 + dispatch, invalid sig → 401, tampered body (sig of original retained) → 401. Mirrors Stripe / GitHub / Slack webhook auth. |
+| OFFICE-29-AUDIT-TRAIL | Cross-agent telemetry aggregation | ✅ first-try | Walks each agent's `~/.mur/agents/<name>/telemetry/<date>.jsonl`, parses, sorts by timestamp, writes unified `audit-o29.jsonl`. 3 agents → 3 events merged into one auditable trail (the basic observability primitive any prod fleet needs). |
 
 ## Errors Found and Fixed in Phase 2
 

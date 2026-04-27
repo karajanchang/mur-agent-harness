@@ -1,0 +1,1 @@
+{"req": {"request_id": "req-2026-04-28-001", "body": "process this once"}, "ack": "echo: {\"request_id\": \"req-2026-04-28-001\", \"body\": \"process this once\"}"}

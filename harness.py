@@ -275,6 +275,34 @@ ROSTER: dict[str, AgentSpec] = {
     "node_b_o24": AgentSpec("node_b_o24"),
     "node_c_o24": AgentSpec("node_c_o24",
                              accepts_from=["node_a_o24", "node_b_o24", "*"]),
+    # ---- Phase 8 (production patterns) ----
+    # OFFICE-26 idempotency
+    "processor_o26": AgentSpec("processor_o26", fs_write=[str(FILES_DIR)]),
+    # OFFICE-27 escalation
+    "classifier_o27": AgentSpec(
+        "classifier_o27",
+        model="llama3.2:3b",
+        system_prompt=(
+            "You classify customer requests into ONE of: simple, complex, unknown.\n"
+            "- simple: routine question with clear answer (FAQ-level)\n"
+            "- complex: needs investigation, custom work, or judgment\n"
+            "- unknown: cannot tell from the message\n\n"
+            "Examples:\n"
+            "'what's the wifi password?' -> simple\n"
+            "'we need a custom integration with our 1990s mainframe' -> complex\n"
+            "'?' -> unknown\n\n"
+            "Reply with EXACTLY ONE lowercase word from {simple, complex, unknown}. "
+            "No preamble, no punctuation."
+        ),
+    ),
+    "junior_o27": AgentSpec("junior_o27", accepts_from=["classifier_o27", "*"]),
+    "senior_o27": AgentSpec("senior_o27", accepts_from=["classifier_o27", "*"]),
+    # OFFICE-28 HMAC webhook (single backend agent)
+    "hmac_backend_o28": AgentSpec("hmac_backend_o28", fs_write=[str(FILES_DIR)]),
+    # OFFICE-29 audit trail (3 agents whose telemetry we'll aggregate)
+    "step_a_o29": AgentSpec("step_a_o29"),
+    "step_b_o29": AgentSpec("step_b_o29"),
+    "step_c_o29": AgentSpec("step_c_o29"),
 }
 
 
@@ -1793,6 +1821,243 @@ def office_24_dag_deps(h: Harness) -> bool:
     return True
 
 
+def office_26_idempotent(h: Harness) -> bool:
+    """Same request retried 3x (network flakiness simulation); harness dedups by id."""
+    h.ensure_profile(ROSTER["processor_o26"])
+    h.spawn("processor_o26")
+    h.checkpoint("OFFICE-26.spawned")
+
+    seen_ids: set[str] = set()
+    outbox_dir = FILES_DIR / "outbox_o26"
+    outbox_dir.mkdir(parents=True, exist_ok=True)
+    for f in outbox_dir.glob("*.json"):
+        f.unlink()  # clean from prior runs
+
+    request = {"request_id": "req-2026-04-28-001", "body": "process this once"}
+
+    def submit(req: dict) -> str:
+        rid = req["request_id"]
+        if rid in seen_ids:
+            log("OFFICE-26.dedup_hit", request_id=rid)
+            return "deduped"
+        seen_ids.add(rid)
+        out_path = outbox_dir / f"{rid}.json"
+        if out_path.exists():
+            log("OFFICE-26.dedup_disk", request_id=rid)
+            return "deduped"
+        resp = h.send("processor_o26", json.dumps(req))
+        out_path.write_text(json.dumps({
+            "req": req,
+            "ack": _agent_text(resp),
+        }))
+        return "processed"
+
+    # Send same request 3 times (e.g. flaky client retry).
+    outcomes = [submit(request) for _ in range(3)]
+    log("OFFICE-26.outcomes", outcomes=outcomes)
+
+    if outcomes != ["processed", "deduped", "deduped"]:
+        h.record_error("OFFICE-26.dedup_broken", outcomes=outcomes)
+        return False
+    if len(list(outbox_dir.glob("*.json"))) != 1:
+        h.record_error("OFFICE-26.duplicate_outbox",
+                       count=len(list(outbox_dir.glob("*.json"))))
+        return False
+
+    h.checkpoint("OFFICE-26.complete")
+    return True
+
+
+def office_27_escalate(h: Harness) -> bool:
+    """LLM classifier; complex/unknown cases escalate to senior agent."""
+    for name in ("classifier_o27", "junior_o27", "senior_o27"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name, llm_mode=(name == "classifier_o27"))
+    h.checkpoint("OFFICE-27.spawned")
+
+    cases = [
+        ("what's the wifi password?", "junior"),       # simple
+        ("we need a custom integration with our 1990s mainframe", "senior"),  # complex
+        ("?", "senior"),  # unknown -> escalate
+    ]
+    routed: list[dict] = []
+    for body, expected_route in cases:
+        cls_resp = h.send("classifier_o27", body, timeout=120)
+        cls_raw = _agent_text(cls_resp).strip().lower().splitlines()[0] if _agent_text(cls_resp).strip() else ""
+        # Routing policy: only "simple" goes to junior; everything else escalates.
+        if "simple" in cls_raw:
+            target = "junior_o27"; route = "junior"
+        else:
+            target = "senior_o27"; route = "senior"
+        reply = h.send(target, body)
+        routed.append({"body": body, "classified": cls_raw, "route": route,
+                       "expected": expected_route})
+        log("OFFICE-27.routed", route=route, expected=expected_route, raw=cls_raw[:60])
+
+    # Permissive: at least 2/3 should match expected route. Small models drift.
+    hits = sum(1 for r in routed if r["route"] == r["expected"])
+    if hits < 2:
+        h.record_error("OFFICE-27.below_threshold", hits=hits, routed=routed)
+        return False
+    out = FILES_DIR / "escalation-o27.json"
+    out.write_text(json.dumps(routed, indent=2))
+    h.checkpoint("OFFICE-27.complete", hits=hits)
+    return True
+
+
+def office_28_hmac_webhook(h: Harness) -> bool:
+    """Production-style signed webhook: HMAC-SHA256 over body + X-Signature header.
+
+    Demonstrates the security pattern n8n / GitHub / Stripe / Slack all use to
+    authenticate inbound webhooks. The webhook handler verifies the HMAC
+    before dispatching to the backend agent. Invalid sigs are rejected.
+    """
+    import hmac, hashlib, http.server, socketserver, threading, urllib.request, urllib.error
+    h.ensure_profile(ROSTER["hmac_backend_o28"])
+    h.spawn("hmac_backend_o28")
+    h.checkpoint("OFFICE-28.spawned")
+
+    SECRET = b"shared-secret-2026"
+    received: list[dict] = []
+    rejected: list[dict] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_a, **_k): return
+
+        def do_POST(self) -> None:
+            sig = self.headers.get("X-Signature", "")
+            n = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(n)
+            expected = hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(sig, expected):
+                rejected.append({"sig": sig[:16], "expected": expected[:16]})
+                self.send_error(401, "invalid signature")
+                return
+            payload = json.loads(body.decode("utf-8"))
+            resp = h.send("hmac_backend_o28", json.dumps(payload))
+            received.append({"payload": payload, "ack": _agent_text(resp)})
+            self.send_response(200); self.send_header("Content-Type", "application/json")
+            self.end_headers(); self.wfile.write(b'{"ok":true}')
+
+    port = 7881
+    httpd = socketserver.TCPServer(("127.0.0.1", port), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    log("OFFICE-28.webhook_up", port=port)
+    try:
+        # 1. Valid signed request — should be accepted
+        body = json.dumps({"event": "checkout.completed", "amount": 99}).encode()
+        sig = hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+        req = urllib.request.Request(f"http://127.0.0.1:{port}",
+                                     data=body, headers={"X-Signature": sig,
+                                                          "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            assert r.status == 200
+        log("OFFICE-28.valid_accepted")
+
+        # 2. Invalid sig — should be rejected with 401
+        bad_req = urllib.request.Request(f"http://127.0.0.1:{port}",
+                                         data=body, headers={"X-Signature": "deadbeef" * 8,
+                                                              "Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(bad_req, timeout=10)
+            h.record_error("OFFICE-28.invalid_accepted_should_have_been_rejected")
+            return False
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                h.record_error("OFFICE-28.wrong_reject_code", code=e.code)
+                return False
+            log("OFFICE-28.invalid_rejected_401")
+
+        # 3. Tampered body (sig stays the original) — should be rejected
+        tampered = json.dumps({"event": "checkout.completed", "amount": 1}).encode()  # changed 99 -> 1
+        tamper_req = urllib.request.Request(f"http://127.0.0.1:{port}",
+                                            data=tampered, headers={"X-Signature": sig,  # sig of original
+                                                                     "Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(tamper_req, timeout=10)
+            h.record_error("OFFICE-28.tampered_accepted")
+            return False
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                h.record_error("OFFICE-28.tamper_wrong_code", code=e.code)
+                return False
+            log("OFFICE-28.tampered_rejected_401")
+
+        if len(received) != 1 or len(rejected) != 2:
+            h.record_error("OFFICE-28.count_mismatch",
+                           received=len(received), rejected=len(rejected))
+            return False
+        out = FILES_DIR / "hmac-o28.json"
+        out.write_text(json.dumps({"received": received, "rejected": rejected}, indent=2))
+        h.checkpoint("OFFICE-28.complete")
+        return True
+    finally:
+        httpd.shutdown(); httpd.server_close()
+
+
+def office_29_audit_trail(h: Harness) -> bool:
+    """Aggregate per-agent telemetry into one global audit trail.
+
+    Each mur agent writes JSONL telemetry to its own
+    `~/.mur/agents/<name>/telemetry/<date>.jsonl`. This scenario runs a
+    chain across 3 agents, then walks each agent_home and merges the
+    telemetry into one timestamp-sorted audit log.
+    """
+    for name in ("step_a_o29", "step_b_o29", "step_c_o29"):
+        h.ensure_profile(ROSTER[name])
+        h.spawn(name)
+    h.checkpoint("OFFICE-29.spawned")
+
+    # Generate activity that will produce telemetry events on each agent.
+    h.send("step_a_o29", "audit step a")
+    h.send("step_b_o29", "audit step b")
+    h.send("step_c_o29", "audit step c")
+    # Stop the agents so they flush shutdown telemetry.
+    for n in ("step_a_o29", "step_b_o29", "step_c_o29"):
+        h.stop(n)
+
+    # Aggregate.
+    events: list[dict] = []
+    for n in ("step_a_o29", "step_b_o29", "step_c_o29"):
+        tdir = AGENT_HOME_BASE / n / "telemetry"
+        if not tdir.exists():
+            continue
+        for jsonl in sorted(tdir.glob("*.jsonl")):
+            for line in jsonl.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                events.append(ev)
+
+    # Sort by ts.
+    events.sort(key=lambda e: e.get("ts", ""))
+    log("OFFICE-29.events_aggregated", count=len(events))
+
+    if len(events) < 3:
+        h.record_error("OFFICE-29.insufficient_events", got=len(events))
+        return False
+
+    audit_path = FILES_DIR / "audit-o29.jsonl"
+    audit_path.write_text("".join(json.dumps(e) + "\n" for e in events))
+
+    by_agent: dict[str, int] = {}
+    for e in events:
+        a = e.get("mur.agent.name", "unknown")
+        by_agent[a] = by_agent.get(a, 0) + 1
+    log("OFFICE-29.by_agent", **by_agent)
+
+    if set(by_agent.keys()) != {"step_a_o29", "step_b_o29", "step_c_o29"}:
+        h.record_error("OFFICE-29.missing_agents", got=list(by_agent.keys()))
+        return False
+
+    h.checkpoint("OFFICE-29.complete", events=len(events))
+    return True
+
+
 SCENARIOS = {
     "OFFICE-1": office_1,
     "OFFICE-2": office_2,
@@ -1817,6 +2082,10 @@ SCENARIOS = {
     "OFFICE-21-DIALOG": office_21_stateful_dialog,
     "OFFICE-23-APPROVAL": office_23_approval_gate,
     "OFFICE-24-DAG": office_24_dag_deps,
+    "OFFICE-26-IDEMPOTENT": office_26_idempotent,
+    "OFFICE-27-ESCALATE-LLM": office_27_escalate,
+    "OFFICE-28-HMAC-WEBHOOK": office_28_hmac_webhook,
+    "OFFICE-29-AUDIT-TRAIL": office_29_audit_trail,
 }
 
 
