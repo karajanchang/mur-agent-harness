@@ -36,7 +36,7 @@ LOG_FILE = HARNESS_DIR / "run.log"
 STATE_FILE = HARNESS_DIR / "state.json"
 FILES_DIR = HARNESS_DIR / "files"
 
-MUR = "/tmp/mur-fix-v241/target/release/mur"
+MUR = os.environ.get("HARNESS_MUR_BIN", "/tmp/mur-fix-v241/target/release/mur")
 RUNTIME_DIR = Path.home() / ".local" / "bin"
 AGENT_HOME_BASE = Path.home() / ".mur" / "agents"
 
@@ -910,8 +910,8 @@ def office_8(h: Harness) -> bool:
 # Cross-network scenarios (OFFICE-9 / OFFICE-10)
 # ---------------------------------------------------------------------------
 
-REMOTE_HOST = os.environ.get("HARNESS_REMOTE_HOST", "karajan@commander.twdd.tw")
-REMOTE_HOME = os.environ.get("HARNESS_REMOTE_HOME", "/home/karajan")
+REMOTE_HOST = os.environ.get("HARNESS_REMOTE_HOST", "user@your-remote-host.example")
+REMOTE_HOME = os.environ.get("HARNESS_REMOTE_HOME", "/home/user")
 REMOTE_RUNTIME = f"{REMOTE_HOME}/.local/bin/mur-agent-runtime"
 A2A_SEND_LOCAL = "/tmp/mur-agent-harness/a2a_send.py"
 A2A_SEND_REMOTE = "/tmp/a2a_send.py"
@@ -1129,7 +1129,7 @@ def office_11_xnet_llm(h: Harness) -> bool:
     """Cross-network REAL-LLM specialist — closes the loop on the office vision.
 
     Local: HTTP webhook on :7879. POST /support → forwarded to a remote agent
-    running `qwen3:4b` on commander.twdd.tw with a customer-support system
+    running `qwen3:4b` on a remote Linux host with a customer-support system
     prompt. The reply is a real (non-echo) one-sentence answer.
 
     Network topology:

@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-karajan@commander.twdd.tw}"
+REMOTE_HOST="${REMOTE_HOST:-user@your-remote-host.example}"
 MUR_BIN="${MUR_BIN:-/tmp/mur-fix-v241/target/release/mur}"
 LOCAL_AGENT="${LOCAL_AGENT:-bash_demo_src}"
 REMOTE_AGENT="${REMOTE_AGENT:-bash_demo_remote}"

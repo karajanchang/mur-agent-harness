@@ -62,7 +62,7 @@ HARNESS_REMOTE_LLM=1 python3 harness.py --scenario all
 ## Cross-network setup
 
 OFFICE-9 / OFFICE-10 expect:
-- `HARNESS_REMOTE_HOST` env (default `karajan@commander.twdd.tw`) reachable via passwordless SSH (`-o BatchMode=yes`)
+- `HARNESS_REMOTE_HOST` env (e.g. `user@host.example`) reachable via passwordless SSH (`-o BatchMode=yes`)
 - `mur-agent-runtime` installed at `~/.local/bin/mur-agent-runtime` on the remote (run `cargo build --release -p mur-agent-runtime` from the mur source tree on a Linux host)
 - `python3` on the remote (uses stdlib only)
 
